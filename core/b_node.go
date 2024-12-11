@@ -1,12 +1,23 @@
 package core
 
-import "encoding/binary"
+import (
+	"bytes"
+	"encoding/binary"
+)
 
 const (
 	BNODE_NODE = 1 // internal nodes without values
 	BNODE_LEAF = 2 // leaf nodes with values
 )
 
+/*
+a node's data formate:
+| type | nkeys | pointers   | offsets    | key-values
+| 2B   | 2B    | nkeys * 8B | nkeys * 2B | ...
+This is the format of the KV pair. Lengths followed by data.
+| klen | vlen | key | val |
+| 2B   | 2B   | ... | ... |
+*/
 type BNode struct {
 	data []byte // can be dumped to the disk
 }
@@ -79,4 +90,67 @@ func (node BNode) getVal(idx uint16) []byte {
 // node size in bytes
 func (node BNode) nbytes() uint16 {
 	return node.kvPos(node.nkeys())
+}
+
+// returns the first kid node whose range intersects the key. (kid[i] <= key)
+// TODO: bisect
+// The lookup works for both leaf nodes and internal nodes.
+func nodeLookupLE(node BNode, key []byte) uint16 {
+	nkeys := node.nkeys()
+	found := uint16(0)
+	// the first key is a copy from the parent node,
+	// thus it's always less than or equal to the key.
+	// Note that the first key is skipped
+	// for comparison, since it has already been compared from the parent node
+	for i := uint16(1); i < nkeys; i++ {
+		cmp := bytes.Compare(node.getKey(i), key)
+		if cmp <= 0 {
+			found = i
+		}
+		if cmp >= 0 {
+			break
+		}
+	}
+	return found
+}
+
+// add a new key to a leaf node
+func leafInsert(
+	new BNode,
+	old BNode,
+	idx uint16,
+	key []byte,
+	val []byte,
+) {
+	new.setHeader(BNODE_LEAF, old.nkeys()+1)
+	nodeAppendRange(new, old, 0, 0, idx)
+	nodeAppendKV(new, idx, 0, key, val)
+	nodeAppendRange(new, old, idx+1, idx, old.nkeys()-idx)
+}
+
+// copy multiple KVs into the position
+func nodeAppendRange(
+	new BNode, old BNode,
+	dstNew uint16, srcOld uint16, n uint16,
+) {
+	//assert(srcOld+n <= old.nkeys())
+	//assert(dstNew+n <= new.nkeys())
+	if n == 0 {
+		return
+	}
+	// pointers
+	for i := uint16(0); i < n; i++ {
+		new.setPtr(dstNew+i, old.getPtr(srcOld+i))
+	}
+	// offsets
+	dstBegin := new.getOffset(dstNew)
+	srcBegin := old.getOffset(srcOld)
+	for i := uint16(1); i <= n; i++ { // NOTE: the range is [1, n]
+		offset := dstBegin + old.getOffset(srcOld+i) - srcBegin
+		new.setOffset(dstNew+i, offset)
+	}
+	// KVs
+	begin := old.kvPos(srcOld)
+	end := old.kvPos(srcOld + n)
+	copy(new.data[new.kvPos(dstNew):], old.data[begin:end])
 }
