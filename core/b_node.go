@@ -39,6 +39,7 @@ func (node BNode) setHeader(btype uint16, nkeys uint16) {
 
 // pointers
 func (node BNode) getPtr(idx uint16) uint64 {
+	// 获取指向子节点的指针
 	//assert(idx < node.nkeys()) todo:增加err处理
 	pos := HEADER + 8*idx
 	return binary.LittleEndian.Uint64(node.data[pos:])
@@ -53,10 +54,17 @@ func (node BNode) setPtr(idx uint16, val uint64) {
 // The offset of the first KV pair is always zero, so it is not stored in the list.
 // We store the offset to the end of the last KV pair in the offset list,
 // which is used to determine the size of the node
+// offsetPos 的目标是根据偏移量列表的起始位置和第 idx 个键值对的索引，计算出该偏移量在存储区域中的具体位置。
 func offsetPos(node BNode, idx uint16) uint16 {
 	//	assert(1 <= idx && idx <= node.nkeys())
+	// 每个偏移量占用2个字节，所以乘以2
+	// 这里的计算都是以Byte为单位的
+	// 8*node.nkeys()就是pointers的位置，因为一个指针8Bytes
+	// 这里是计算出offet字节的位置，然后再根据offet对应的值来算出对应的kvs的位置
 	return HEADER + 8*node.nkeys() + 2*(idx-1)
 }
+
+// 这个函数来获取offet字节数组存储的值
 func (node BNode) getOffset(idx uint16) uint16 {
 	if idx == 0 {
 		return 0
@@ -76,7 +84,9 @@ func (node BNode) kvPos(idx uint16) uint16 {
 func (node BNode) getKey(idx uint16) []byte {
 	//assert(idx < node.nkeys())
 	pos := node.kvPos(idx)
+	// 获取key的字节长度
 	klen := binary.LittleEndian.Uint16(node.data[pos:])
+	// pos+4是跳过klen+vlen
 	return node.data[pos+4:][:klen]
 }
 func (node BNode) getVal(idx uint16) []byte {
@@ -89,6 +99,9 @@ func (node BNode) getVal(idx uint16) []byte {
 
 // node size in bytes
 func (node BNode) nbytes() uint16 {
+	// 为什么这个代表node的大小呢？偏移量不是返回idx对应的数据开始位置吗？
+	// 这是因为idx是从0开始计算的，所以这里传入nkeys()相当于计算下一个要插入的kv的字节位置
+	// 也就算出了当前存储数据的最后一个idx的字节数据结束位置
 	return node.kvPos(node.nkeys())
 }
 
@@ -139,12 +152,16 @@ func nodeAppendRange(
 		return
 	}
 	// pointers
+	// 注意是小于n
 	for i := uint16(0); i < n; i++ {
 		new.setPtr(dstNew+i, old.getPtr(srcOld+i))
 	}
+
+	// 复制offset
 	// offsets
 	dstBegin := new.getOffset(dstNew)
 	srcBegin := old.getOffset(srcOld)
+	// 因为offset不存储idx=0的偏移量
 	for i := uint16(1); i <= n; i++ { // NOTE: the range is [1, n]
 		offset := dstBegin + old.getOffset(srcOld+i) - srcBegin
 		new.setOffset(dstNew+i, offset)
@@ -166,6 +183,8 @@ func nodeAppendKV(new BNode, idx uint16, ptr uint64, key []byte, val []byte) {
 	copy(new.data[pos+4:], key)
 	copy(new.data[pos+4+uint16(len(key)):], val)
 	// the offset of the next key
+	// 计算当前键值对（键长度、值长度、键和值本身）的总字节数，作为下一个键值对的偏移量
+	// 因为当前键值对的存储过程会直接影响下一个键值对的存储位置
 	new.setOffset(idx+1, new.getOffset(idx)+4+uint16((len(key)+len(val))))
 }
 
@@ -196,6 +215,21 @@ func treeInsert(tree *BTree, node BNode, key []byte, val []byte) BNode {
 		panic("bad node!")
 	}
 	return new
+}
+
+func leafUpdate(new BNode, old BNode, idx uint16, key []byte, val []byte) {
+	// 更新叶子节点的键值对数量（数量保持不变）
+	new.setHeader(BNODE_LEAF, old.nkeys())
+
+	// 1. 复制 `idx` 之前的键值对
+	nodeAppendRange(new, old, 0, 0, idx)
+
+	// 2. 更新目标键值对
+	// 注意：即使键（key）没有变化，偏移量列表仍需要重新计算，因为值（val）的长度可能改变
+	nodeAppendKV(new, idx, 0, key, val)
+
+	// 3. 复制 `idx` 之后的键值对
+	nodeAppendRange(new, old, idx+1, idx+1, old.nkeys()-(idx+1))
 }
 
 // part of the treeInsert(): KV insertion to an internal node
