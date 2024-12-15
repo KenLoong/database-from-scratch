@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,8 +23,8 @@ func TestAAA(t *testing.T) {
 
 	modifyA(a)
 
-	fmt.Printf("%s\n", a.data)
-
+	// 说明node的值传递是有问题的！！！
+	assert.Equal(t, a.data, []byte("hello"))
 }
 
 func modifyA(a A) {
