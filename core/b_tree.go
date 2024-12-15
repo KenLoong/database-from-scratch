@@ -82,6 +82,7 @@ func (tree *BTree) Insert(key []byte, val []byte) {
 		root.setHeader(BNODE_NODE, nsplit)
 		for i, knode := range splitted[:nsplit] {
 			ptr, key := tree.new(knode), knode.getKey(0)
+			// 这里只是说明root子节点指针队员的key时子节点的第一个key
 			nodeAppendKV(root, uint16(i), ptr, key, nil)
 		}
 		tree.root = tree.new(root)
