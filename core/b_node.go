@@ -252,10 +252,42 @@ func nodeInsert(
 // split a bigger-than-allowed node into two.
 // the second node always fits on a page.
 func nodeSplit2(left BNode, right BNode, old BNode) {
-	// code omitted...
+	// [splitIdx,...)为右节点,[0,idx)是左节点，注意是左闭右开
+	splitIdx := old.nkeys() - 1
+
+	// 动态调整分裂点，确保右节点大小符合页面限制
+	for {
+		// 计算右节点的大小
+		rightSize := old.nbytes() - old.kvPos(splitIdx)
+		if rightSize <= BTREE_PAGE_SIZE {
+			if splitIdx == 1 {
+				break // 已经无法再向左调整，不然左节点就是空节点了
+			}
+			splitIdx--
+			continue
+		}
+		// 如果右节点大小超出限制，向右调整分裂点
+		if splitIdx == old.nkeys() {
+			panic("Cannot split: no valid split point found")
+		}
+		splitIdx++
+		break
+	}
+
+	// 设置左节点和右节点的头部
+	left.setHeader(old.btype(), splitIdx)
+	right.setHeader(old.btype(), old.nkeys()-splitIdx)
+
+	// 将数据复制到左节点
+	// 注意是左闭右开，splitIdx至少要等于1，不然左节点是空的
+	nodeAppendRange(left, old, 0, 0, splitIdx)
+
+	// 将数据复制到右节点
+	nodeAppendRange(right, old, 0, splitIdx, old.nkeys()-splitIdx)
 }
 
 // split a node if it's too big. the results are 1~3 nodes.
+// 检查子节点是否需要分裂。如果子节点的大小超出了限制，则将其分裂为 2 或 3 个新节点
 func nodeSplit3(old BNode) (uint16, [3]BNode) {
 	if old.nbytes() <= BTREE_PAGE_SIZE {
 		old.data = old.data[:BTREE_PAGE_SIZE]
