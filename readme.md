@@ -12,7 +12,7 @@ answer : p13
 
 看到 page 32
 
-nodeReplace2Kid,leafUpdate 函数要自己实现
+_nodeReplace2Kid,leafUpdate, nodeSplit2 函数要自己实现_
 
 There are some easy improvements to our B-tree implementation:
 
@@ -25,5 +25,4 @@ There are some easy improvements to our B-tree implementation:
 
 # day4
 
-发现 node 都是值传递，这样子 split 是无效的！！！
-TODO：待改进
+发现 node 都是值传递，这样子 split 是无效的！！！TODO：待改进
