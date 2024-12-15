@@ -314,11 +314,14 @@ func nodeReplaceKidN(
 	kids ...BNode,
 ) {
 	inc := uint16(len(kids))
+	// 减去 1 是因为我们正在替换原来一个子节点
 	new.setHeader(BNODE_NODE, old.nkeys()+inc-1)
 	nodeAppendRange(new, old, 0, 0, idx)
 	for i, node := range kids {
+		// 	node.getKey(0) 是为了获取 新子节点 的第一个键，这个键会用于更新父节点中指向该子节点的指针
 		nodeAppendKV(new, idx+uint16(i), tree.new(node), node.getKey(0), nil)
 	}
+	// 从 old 节点中复制从 idx + 1 到最后的所有元素（即从 idx+1 到 old.nkeys() 的部分）到 new 节点中
 	nodeAppendRange(new, old, idx+inc, idx+1, old.nkeys()-(idx+1))
 }
 
@@ -333,6 +336,7 @@ func leafDelete(new BNode, old BNode, idx uint16) {
 func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
 	// recurse into the kid
 	kptr := node.getPtr(idx)
+	// 这里返回的updated就是已经更新过的叶子节点
 	updated := treeDelete(tree, tree.get(kptr), key)
 	if len(updated.data) == 0 {
 		return BNode{} // not found
@@ -359,6 +363,28 @@ func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
 	return new
 }
 
+// new代表父节点,node代表原来的父节点
+// idx 代表 合并后子节点在父节点中的索引位置。
+func nodeReplace2Kid(new, node BNode, idx uint16, u2 uint64, b []byte) {
+	// 更新父节点的头部，新的子节点数量为原节点子节点数量 - 1（因为我们替换了一个原有的子节点）
+	new.setHeader(BNODE_NODE, node.nkeys()-1) // 更新新的父节点的子节点数量
+
+	// 2. 将原节点 `node` 中的 idx 之前的子节点复制到 `new` 中
+	// `nodeAppendRange` 将原节点中的子节点指针从索引 0 到 idx（不包括 idx）复制到 `new` 中
+	// 这样 `new` 中的前一部分子节点就和 `node` 保持一致
+	nodeAppendRange(new, node, 0, 0, idx) // 将原节点中 0 到 idx 之前的子节点复制到新节点
+
+	// 3. 插入新的子节点指针
+	// `nodeAppendKV` 将新子节点的指针 `u2` 插入到新节点 `new` 中，并在父节点中更新相应的键 `b`
+	// `u2` 是新的子节点的指针，`b` 是新子节点的第一个键
+	nodeAppendKV(new, idx, u2, b, nil) // 插入新的子节点指针 `u2` 和相应的键 `b` 到父节点中
+
+	// 4. 将 `node` 中 idx 之后的子节点复制到 `new` 中
+	// dstNew := idx+1：目标节点 new 中，插入数据的起始位置是 idx+1。这个位置是用来接收 父节点中 idx+1 之后的所有子节点。即我们要从源节点 node 中复制的数据会插入到 new 的第 idx+1 位置开始。
+	// srcOld := idx+1：源节点 node 中，复制的数据从 idx+1 开始，也就是从父节点 node 中的 第 idx+1 个子节点开始。这是因为我们刚刚删除了 idx 位置的子节点，因此需要将 idx+1 之后的所有子节点指针复制到新的父节点
+	nodeAppendRange(new, node, idx+1, idx+1, node.nkeys()-(idx+1)) // 将原节点中 idx 之后的子节点复制到新节点
+}
+
 // merge 2 nodes into 1
 func nodeMerge(new BNode, left BNode, right BNode) {
 	new.setHeader(left.btype(), left.nkeys()+right.nkeys())
@@ -374,6 +400,10 @@ func shouldMerge(
 	if updated.nbytes() > BTREE_PAGE_SIZE/4 {
 		return 0, BNode{}
 	}
+	//idx 是当前子节点在父节点中的索引。idx 表示当前子节点的位置，在父节点中的位置是 idx。
+	//idx > 0 检查当前子节点是否是父节点的 第一个子节点。
+	//如果 idx > 0，说明当前子节点左边有一个兄弟节点，即 有左邻居，可以考虑将当前子节点和左邻居子节点合并。
+	//如果 idx == 0，说明当前子节点是父节点的 第一个子节点，没有左邻居节点，此时不能与左邻居合并，只能考虑与右邻居节点合并。
 	if idx > 0 {
 		sibling := tree.get(node.getPtr(idx - 1))
 		merged := sibling.nbytes() + updated.nbytes() - HEADER
