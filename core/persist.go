@@ -282,3 +282,38 @@ func extendFile(db *KV, npages int) error {
 	db.mmap.file = fileSize
 	return nil
 }
+
+func writePages(db *KV) error {
+	// extend the file & mmap if needed
+	npages := int(db.page.flushed) + len(db.page.temp)
+	if err := extendFile(db, npages); err != nil {
+		return err
+	}
+	if err := extendMmap(db, npages); err != nil {
+		return err
+	}
+	// copy data to the file
+	for i, page := range db.page.temp {
+		ptr := db.page.flushed + uint64(i)
+		copy(db.pageGet(ptr).data, page)
+	}
+	return nil
+}
+
+func syncPages(db *KV) error {
+	// flush data to the disk. must be done before updating the master page.
+	if err := db.fp.Sync(); err != nil {
+		return fmt.Errorf("fsync: %w", err)
+	}
+	db.page.flushed += uint64(len(db.page.temp))
+	db.page.temp = db.page.temp[:0]
+
+	// update & flush the master page
+	if err := masterStore(db); err != nil {
+		return err
+	}
+	if err := db.fp.Sync(); err != nil {
+		return fmt.Errorf("fsync: %w", err)
+	}
+	return nil
+}

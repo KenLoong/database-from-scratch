@@ -33,4 +33,15 @@ kv store
 
 # day6
 
-实现 tree 的 Get 函数
+- 实现 tree 的 Get 函数
+- 实现 freelist 的以下函数，开始上手了理解了
+  //func flnSize(node BNode) int
+  //func flnNext(node BNode) uint64
+  //func flnPtr(node BNode, idx int)
+  //func flnSetPtr(node BNode, idx int, ptr uint64)
+  //func flnSetHeader(node BNode, size uint16, next uint64)
+  //func flnSetTotal(node BNode, total uint64)
+
+freeList 的节点只是复用了 Bnode 节点的结构体的定义，但是内部的格式数据不一样的，要理解这一点才行
+
+freeList 是用来管理页面，而 header 后面的 pointers 才是指向真正的页面，要理解这一点
