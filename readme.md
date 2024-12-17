@@ -26,3 +26,11 @@ There are some easy improvements to our B-tree implementation:
 # day4
 
 发现 node 都是值传递，这样子 split 是无效的！！！TODO：待改进
+
+# day5
+
+kv store
+
+# day6
+
+实现 tree 的 Get 函数

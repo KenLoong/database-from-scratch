@@ -188,6 +188,23 @@ func nodeAppendKV(new BNode, idx uint16, ptr uint64, key []byte, val []byte) {
 	new.setOffset(idx+1, new.getOffset(idx)+4+uint16((len(key)+len(val))))
 }
 
+func treeGet(tree *BTree, node BNode, key []byte) ([]byte, bool) {
+	idx := nodeLookupLE(node, key)
+	switch node.btype() {
+	case BNODE_LEAF:
+		if !bytes.Equal(key, node.getKey(idx)) {
+			return nil, false
+		}
+		return node.getVal(idx), true
+	case BNODE_NODE:
+		kptr := node.getPtr(idx)
+		knode := tree.get(kptr)
+		return treeGet(tree, knode, key)
+	default:
+		panic("bad node!")
+	}
+}
+
 // insert a KV into a node, the result might be split into 2 nodes.
 // the caller is responsible for deallocating the input node
 // and splitting and allocating result nodes.

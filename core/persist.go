@@ -25,6 +25,72 @@ type KV struct {
 	}
 }
 
+func (db *KV) Open() error {
+	// open or create the DB file
+	fp, err := os.OpenFile(db.Path, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return fmt.Errorf("OpenFile: %w", err)
+	}
+	db.fp = fp
+	// create the initial mmap
+	sz, chunk, err := mmapInit(db.fp)
+	if err != nil {
+		goto fail
+	}
+	db.mmap.file = sz
+	db.mmap.total = len(chunk)
+	db.mmap.chunks = [][]byte{chunk}
+	// btree callbacks
+	db.tree.get = db.pageGet
+	db.tree.new = db.pageNew
+	db.tree.del = db.pageDel
+	// read the master page
+	err = masterLoad(db)
+	if err != nil {
+		goto fail
+	}
+	// done
+	return nil
+
+fail:
+	db.Close()
+	return fmt.Errorf("KV.Open: %w", err)
+}
+
+// cleanups
+func (db *KV) Close() {
+	for _, chunk := range db.mmap.chunks {
+		err := syscall.Munmap(chunk)
+		if err != nil {
+			panic(fmt.Sprintf("db close failed,err %+v", err))
+		}
+	}
+	_ = db.fp.Close()
+}
+
+// read the db
+func (db *KV) Get(key []byte) ([]byte, bool) {
+	return db.tree.Get(key)
+}
+
+func (db *KV) Set(key []byte, val []byte) error {
+	db.tree.Insert(key, val)
+	return flushPages(db)
+}
+
+func (db *KV) Del(key []byte) (bool, error) {
+	deleted := db.tree.Delete(key)
+	return deleted, flushPages(db)
+}
+
+// persist the newly allocated pages after updates
+func flushPages(db *KV) error {
+	if err := writePages(db); err != nil {
+		return err
+	}
+	return syncPages(db)
+}
+
 // create the initial mmap that covers the whole file.
 func mmapInit(fp *os.File) (int, []byte, error) {
 	fi, err := fp.Stat()
@@ -172,5 +238,47 @@ func masterStore(db *KV) error {
 	if err != nil {
 		return fmt.Errorf("write master page: %w", err)
 	}
+	return nil
+}
+
+// callback for BTree, allocate a new page.
+func (db *KV) pageNew(node BNode) uint64 {
+	// TODO: reuse deallocated pages
+	// assert(len(node.data) <= BTREE_PAGE_SIZE)
+	ptr := db.page.flushed + uint64(len(db.page.temp))
+	db.page.temp = append(db.page.temp, node.data)
+	return ptr
+}
+
+// callback for BTree, deallocate a page.
+func (db *KV) pageDel(uint64) {
+	// TODO: implement this
+}
+
+// extend the file to at least `npages`.
+func extendFile(db *KV, npages int) error {
+	filePages := db.mmap.file / BTREE_PAGE_SIZE
+	if filePages >= npages {
+		return nil
+	}
+	for filePages < npages {
+		// the file size is increased exponentially,
+		// so that we don't have to extend the file for every update.
+		inc := filePages / 8
+		if inc < 1 {
+			inc = 1
+		}
+		filePages += inc
+	}
+	fileSize := filePages * BTREE_PAGE_SIZE
+	// Fallocate 是 Linux 特有的系统调用
+	//err := syscall.Fallocate(int(db.fp.Fd()), 0, 0, int64(fileSize))
+	// 扩展文件大小
+	err := db.fp.Truncate(int64(fileSize))
+
+	if err != nil {
+		return fmt.Errorf("fallocate: %w", err)
+	}
+	db.mmap.file = fileSize
 	return nil
 }

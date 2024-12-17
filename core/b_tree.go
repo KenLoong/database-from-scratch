@@ -11,25 +11,15 @@ type BTree struct {
 	del func(uint64)       // deallocate a page
 }
 
-// delete a key from the tree
-func treeDelete(tree *BTree, node BNode, key []byte) BNode {
-	// where to find the key?
-	idx := nodeLookupLE(node, key)
-	// act depending on the node type
-	switch node.btype() {
-	case BNODE_LEAF:
-		if !bytes.Equal(key, node.getKey(idx)) {
-			return BNode{} // not found
-		}
-		// delete the key in the leaf
-		new := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
-		leafDelete(new, node, idx)
-		return new
-	case BNODE_NODE:
-		return nodeDelete(tree, node, idx, key)
-	default:
-		panic("bad node!")
+func (tree *BTree) Get(key []byte) ([]byte, bool) {
+	//assert(len(key) != 0)
+	//assert(len(key) <= BTREE_MAX_KEY_SIZE)
+	if tree.root == 0 {
+		return nil, false
 	}
+
+	root := tree.get(tree.root)
+	return treeGet(tree, root, key)
 }
 
 func (tree *BTree) Delete(key []byte) bool {
@@ -88,5 +78,26 @@ func (tree *BTree) Insert(key []byte, val []byte) {
 		tree.root = tree.new(root)
 	} else {
 		tree.root = tree.new(splitted[0])
+	}
+}
+
+// delete a key from the tree
+func treeDelete(tree *BTree, node BNode, key []byte) BNode {
+	// where to find the key?
+	idx := nodeLookupLE(node, key)
+	// act depending on the node type
+	switch node.btype() {
+	case BNODE_LEAF:
+		if !bytes.Equal(key, node.getKey(idx)) {
+			return BNode{} // not found
+		}
+		// delete the key in the leaf
+		new := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
+		leafDelete(new, node, idx)
+		return new
+	case BNODE_NODE:
+		return nodeDelete(tree, node, idx, key)
+	default:
+		panic("bad node!")
 	}
 }
