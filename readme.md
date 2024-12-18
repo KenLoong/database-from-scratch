@@ -45,3 +45,18 @@ kv store
 freeList 的节点只是复用了 Bnode 节点的结构体的定义，但是内部的格式数据不一样的，要理解这一点才行
 
 freeList 是用来管理页面，而 header 后面的 pointers 才是指向真正的页面，要理解这一点
+
+# day7
+
+- 完善 kv 对 freelist 的引用。推断 free 这个变量就是 freelist
+- 首先，只能按照文档的说明，推断 page.temp 这个变量是没有用了
+
+- 另外，按照
+  The pointer to the list head is added to the master page:
+  | sig | btree_root | page_used | free_list |
+  | 16B | 8B | 8B | 8B |
+  需要在 master page 相关函数 masterLoad 和 masterStore 加上关于 freelist 指针的设置
+
+- writePages 这个函数的改造，需要好好详细检查
+
+按照书本描述，The KV store is finished. 后面需要好好写单测测一下才行. 打个 tag 先，方便日后修改
