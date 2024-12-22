@@ -139,6 +139,7 @@ func leafInsert(
 	new.setHeader(BNODE_LEAF, old.nkeys()+1)
 	nodeAppendRange(new, old, 0, 0, idx)
 	nodeAppendKV(new, idx, 0, key, val)
+	// idx右边的key右移
 	nodeAppendRange(new, old, idx+1, idx, old.nkeys()-idx)
 }
 
@@ -201,7 +202,7 @@ func leafUpdate(new BNode, old BNode, idx uint16, key []byte, val []byte) {
 
 	// 2. 更新目标键值对
 	// 注意：即使键（key）没有变化，偏移量列表仍需要重新计算，因为值（val）的长度可能改变
-	// 这里为什么ptr是0？是不是错了？
+	// 这里为什么ptr是0？
 	// ptr 参数被设置为 0，这是因为在 叶子节点 中，ptr 实际上并不用于存储有意义的数据
 	nodeAppendKV(new, idx, 0, key, val)
 
@@ -227,31 +228,41 @@ func nodeInsert(
 	// split the result
 	nsplit, splited := nodeSplit3(knode)
 	// update the kid links
+	// 这里的new和node变量，都是分裂出来的字节点的父节点
 	nodeReplaceKidN(tree, new, node, idx, splited[:nsplit]...)
 }
 
 // split a bigger-than-allowed node into two.
 // the second node always fits on a page.
+// 这个函数是我自己实现的，一定要加单测
 func nodeSplit2(left BNode, right BNode, old BNode) {
 	// [splitIdx,...)为右节点,[0,idx)是左节点，注意是左闭右开
-	splitIdx := old.nkeys() - 1
+	splitIdx := old.nkeys()
+	tryIdx := splitIdx - 1
 
 	// 动态调整分裂点，确保右节点大小符合页面限制
 	for {
 		// 计算右节点的大小
-		rightSize := old.nbytes() - old.kvPos(splitIdx)
+		rightSize := old.nbytes() - old.kvPos(tryIdx)
 		if rightSize <= BTREE_PAGE_SIZE {
-			if splitIdx == 1 {
+			if tryIdx == 1 {
+				splitIdx = tryIdx
 				break // 已经无法再向左调整，不然左节点就是空节点了
 			}
-			splitIdx--
+			if rightSize == BTREE_PAGE_SIZE {
+				splitIdx = tryIdx
+				break
+			}
+			// 还有空间可以放
+			splitIdx = tryIdx
+			tryIdx--
 			continue
 		}
-		// 如果右节点大小超出限制，向右调整分裂点
-		if splitIdx == old.nkeys() {
+		// 到达极限了
+		splitIdx = tryIdx + 1
+		if splitIdx == old.nkeys() { // 到达这一步，那就是右节点会是空节点
 			panic("Cannot split: no valid split point found")
 		}
-		splitIdx++
 		break
 	}
 
@@ -274,6 +285,7 @@ func nodeSplit3(old BNode) (uint16, [3]BNode) {
 		old.data = old.data[:BTREE_PAGE_SIZE]
 		return 1, [3]BNode{old}
 	}
+	// 这里的逻辑是，确保right节点一定在page size范围内
 	left := BNode{make([]byte, 2*BTREE_PAGE_SIZE)} // might be split later
 	right := BNode{make([]byte, BTREE_PAGE_SIZE)}
 	nodeSplit2(left, right, old)
@@ -294,15 +306,19 @@ func nodeReplaceKidN(
 	tree *BTree, new BNode, old BNode, idx uint16,
 	kids ...BNode,
 ) {
+	// 分裂出来的字节点数（如果是1，那就是没分裂）
 	inc := uint16(len(kids))
 	// 减去 1 是因为我们正在替换原来一个子节点
 	new.setHeader(BNODE_NODE, old.nkeys()+inc-1)
+	// 注意是左闭右开，所以这里的idx是不包括被复制的
 	nodeAppendRange(new, old, 0, 0, idx)
-	for i, node := range kids {
+	for i, kNode := range kids {
+		// 从idx这里的位置开始，开始放置分裂后的字节点
 		// 	node.getKey(0) 是为了获取 新子节点 的第一个键，这个键会用于更新父节点中指向该子节点的指针
-		nodeAppendKV(new, idx+uint16(i), tree.new(node), node.getKey(0), nil)
+		nodeAppendKV(new, idx+uint16(i), tree.new(kNode), kNode.getKey(0), nil)
 	}
-	// 从 old 节点中复制从 idx + 1 到最后的所有元素（即从 idx+1 到 old.nkeys() 的部分）到 new 节点中
+	// 从 old 节点中复制从 idx + 1 到最后的所有元素
+	// 新节点从idx+inc开始填放，因为上面的遍历kids里面，最后一个放置的字节点的位置是idx+inc-1
 	nodeAppendRange(new, old, idx+inc, idx+1, old.nkeys()-(idx+1))
 }
 

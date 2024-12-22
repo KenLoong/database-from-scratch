@@ -56,7 +56,6 @@ func (tree *BTree) Insert(key []byte, val []byte) {
 		root.setHeader(BNODE_LEAF, 2)
 		// a dummy key, this makes the tree cover the whole key space.
 		// thus a lookup can always find a containing node.
-		// ptr == 0，通常表示这是一个占位符或哨兵值，当前键没有指向任何子节点
 		nodeAppendKV(root, 0, 0, nil, nil) // 如果树为空时查找一个不存在的键，这个哨兵键确保查找操作可以找到一个候选节点
 		nodeAppendKV(root, 1, 0, key, val)
 		tree.root = tree.new(root)
