@@ -61,6 +61,7 @@ func offsetPos(node BNode, idx uint16) uint16 {
 	// 这里的计算都是以Byte为单位的
 	// 8*node.nkeys()就是pointers的位置，因为一个指针8Bytes
 	// 这里是计算出offet字节的位置，然后再根据offet对应的值来算出对应的kvs的位置
+	// 因为idx=0的话，偏移量就是0，所以offset从idx=1开始存储
 	return HEADER + 8*node.nkeys() + 2*(idx-1)
 }
 
@@ -84,7 +85,7 @@ func (node BNode) kvPos(idx uint16) uint16 {
 func (node BNode) getKey(idx uint16) []byte {
 	//assert(idx < node.nkeys())
 	pos := node.kvPos(idx)
-	// 获取key的字节长度
+	// 获取key的字节长度(2 bytes for key)
 	klen := binary.LittleEndian.Uint16(node.data[pos:])
 	// pos+4是跳过klen+vlen
 	return node.data[pos+4:][:klen]
@@ -113,8 +114,8 @@ func nodeLookupLE(node BNode, key []byte) uint16 {
 	found := uint16(0)
 	// the first key is a copy from the parent node,
 	// thus it's always less than or equal to the key.
-	// Note that the first key is skipped
-	// for comparison, since it has already been compared from the parent node
+	// Note that the first key is skipped for comparison,
+	//  since it has already been compared from the parent node
 	for i := uint16(1); i < nkeys; i++ {
 		cmp := bytes.Compare(node.getKey(i), key)
 		if cmp <= 0 {
@@ -143,8 +144,11 @@ func leafInsert(
 
 // copy multiple KVs into the position
 func nodeAppendRange(
-	new BNode, old BNode,
-	dstNew uint16, srcOld uint16, n uint16,
+	new BNode,
+	old BNode,
+	dstNew uint16, // 新旧节点开始复制的偏移量位置
+	srcOld uint16,
+	n uint16, // 代表要复制的kv对数
 ) {
 	//assert(srcOld+n <= old.nkeys())
 	//assert(dstNew+n <= new.nkeys())
@@ -188,52 +192,6 @@ func nodeAppendKV(new BNode, idx uint16, ptr uint64, key []byte, val []byte) {
 	new.setOffset(idx+1, new.getOffset(idx)+4+uint16((len(key)+len(val))))
 }
 
-func treeGet(tree *BTree, node BNode, key []byte) ([]byte, bool) {
-	idx := nodeLookupLE(node, key)
-	switch node.btype() {
-	case BNODE_LEAF:
-		if !bytes.Equal(key, node.getKey(idx)) {
-			return nil, false
-		}
-		return node.getVal(idx), true
-	case BNODE_NODE:
-		kptr := node.getPtr(idx)
-		knode := tree.get(kptr)
-		return treeGet(tree, knode, key)
-	default:
-		panic("bad node!")
-	}
-}
-
-// insert a KV into a node, the result might be split into 2 nodes.
-// the caller is responsible for deallocating the input node
-// and splitting and allocating result nodes.
-func treeInsert(tree *BTree, node BNode, key []byte, val []byte) BNode {
-	// the result node.
-	// it's allowed to be bigger than 1 page and will be split if so
-	new := BNode{data: make([]byte, 2*BTREE_PAGE_SIZE)}
-	// where to insert the key?
-	idx := nodeLookupLE(node, key)
-	// act depending on the node type
-	switch node.btype() {
-	case BNODE_LEAF:
-		// leaf, node.getKey(idx) <= key
-		if bytes.Equal(key, node.getKey(idx)) {
-			// found the key, update it.
-			leafUpdate(new, node, idx, key, val)
-		} else {
-			// insert it after the position.
-			leafInsert(new, node, idx+1, key, val)
-		}
-	case BNODE_NODE:
-		// internal node, insert it to a kid node.
-		nodeInsert(tree, new, node, idx, key, val)
-	default:
-		panic("bad node!")
-	}
-	return new
-}
-
 func leafUpdate(new BNode, old BNode, idx uint16, key []byte, val []byte) {
 	// 更新叶子节点的键值对数量（数量保持不变）
 	new.setHeader(BNODE_LEAF, old.nkeys())
@@ -243,16 +201,22 @@ func leafUpdate(new BNode, old BNode, idx uint16, key []byte, val []byte) {
 
 	// 2. 更新目标键值对
 	// 注意：即使键（key）没有变化，偏移量列表仍需要重新计算，因为值（val）的长度可能改变
+	// 这里为什么ptr是0？是不是错了？
+	// ptr 参数被设置为 0，这是因为在 叶子节点 中，ptr 实际上并不用于存储有意义的数据
 	nodeAppendKV(new, idx, 0, key, val)
 
 	// 3. 复制 `idx` 之后的键值对
+	// 看到这里理解为什么在nodeAppendKV里面最后要计算下一个idx的偏移量了吧
 	nodeAppendRange(new, old, idx+1, idx+1, old.nkeys()-(idx+1))
 }
 
 // part of the treeInsert(): KV insertion to an internal node
 func nodeInsert(
-	tree *BTree, new BNode, node BNode, idx uint16,
-	key []byte, val []byte,
+	tree *BTree,
+	new BNode, node BNode,
+	idx uint16,
+	key []byte,
+	val []byte,
 ) {
 	// get and deallocate the kid node
 	kptr := node.getPtr(idx)
