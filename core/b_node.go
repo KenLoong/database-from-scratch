@@ -174,6 +174,7 @@ func nodeAppendRange(
 	// KVs
 	begin := old.kvPos(srcOld)
 	end := old.kvPos(srcOld + n)
+	//todo:这里报错了
 	copy(new.data[new.kvPos(dstNew):], old.data[begin:end])
 }
 
@@ -339,6 +340,7 @@ func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
 		return BNode{} // not found
 	}
 	tree.del(kptr)
+	// 注意，这里的new是代替node，而node是中间节点
 	new := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
 	// check for merging
 	mergeDir, sibling := shouldMerge(tree, node, idx, updated)
@@ -353,7 +355,7 @@ func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
 		nodeMerge(merged, updated, sibling)
 		tree.del(node.getPtr(idx + 1))
 		nodeReplace2Kid(new, node, idx, tree.new(merged), merged.getKey(0))
-	case mergeDir == 0:
+	case mergeDir == 0: // no need to merge
 		//assert(updated.nkeys() > 0)
 		nodeReplaceKidN(tree, new, node, idx, updated)
 	}
@@ -397,22 +399,22 @@ func shouldMerge(
 	if updated.nbytes() > BTREE_PAGE_SIZE/4 {
 		return 0, BNode{}
 	}
-	//idx 是当前子节点在父节点中的索引。idx 表示当前子节点的位置，在父节点中的位置是 idx。
+	//idx 是当前子节点在父节点中的索引。idx 表示当前子节点在父节点中的位置是 idx。
 	//idx > 0 检查当前子节点是否是父节点的 第一个子节点。
 	//如果 idx > 0，说明当前子节点左边有一个兄弟节点，即 有左邻居，可以考虑将当前子节点和左邻居子节点合并。
 	//如果 idx == 0，说明当前子节点是父节点的 第一个子节点，没有左邻居节点，此时不能与左邻居合并，只能考虑与右邻居节点合并。
 	if idx > 0 {
-		sibling := tree.get(node.getPtr(idx - 1))
-		merged := sibling.nbytes() + updated.nbytes() - HEADER
+		leftSibling := tree.get(node.getPtr(idx - 1))
+		merged := leftSibling.nbytes() + updated.nbytes() - HEADER
 		if merged <= BTREE_PAGE_SIZE {
-			return -1, sibling
+			return -1, leftSibling
 		}
 	}
 	if idx+1 < node.nkeys() {
-		sibling := tree.get(node.getPtr(idx + 1))
-		merged := sibling.nbytes() + updated.nbytes() - HEADER
+		rightSibling := tree.get(node.getPtr(idx + 1))
+		merged := rightSibling.nbytes() + updated.nbytes() - HEADER
 		if merged <= BTREE_PAGE_SIZE {
-			return +1, sibling
+			return +1, rightSibling
 		}
 	}
 	return 0, BNode{}

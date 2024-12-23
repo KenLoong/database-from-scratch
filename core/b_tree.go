@@ -33,6 +33,7 @@ func (tree *BTree) Delete(key []byte) bool {
 		return false // not found
 	}
 	tree.del(tree.root)
+	// 只有一个key，可以取代原来的root节点了
 	if updated.btype() == BNODE_NODE && updated.nkeys() == 1 {
 		// remove a level
 		tree.root = updated.getPtr(0)
@@ -43,8 +44,9 @@ func (tree *BTree) Delete(key []byte) bool {
 }
 
 // the interface
-// The empty key is the lowest possible key by sorting order, it makes the lookup
-// function nodeLookupLE always successful, eliminating the case of failing to find a node that
+// The empty key is the lowest possible key by sorting order,
+// it makes the lookup function nodeLookupLE always successful,
+// eliminating the case of failing to find a node that
 // contains the input key
 func (tree *BTree) Insert(key []byte, val []byte) {
 	// assert(len(key) != 0)

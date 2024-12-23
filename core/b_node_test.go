@@ -9,7 +9,6 @@ import (
 func TestLeafInsert(t *testing.T) {
 	root := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
 	newNode := BNode{data: make([]byte, BTREE_MAX_VAL_SIZE)}
-	// todo:一个root的初始化应该是怎么样的呢？
 	root.setHeader(BNODE_LEAF, 0)
 	leafInsert(newNode, root, 0, []byte("date"), []byte("2024-11-30"))
 	key := newNode.getKey(0)

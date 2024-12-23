@@ -60,3 +60,7 @@ freeList 是用来管理页面，而 header 后面的 pointers 才是指向真�
 - writePages 这个函数的改造，需要好好详细检查
 
 按照书本描述，The KV store is finished. 后面需要好好写单测测一下才行. 打个 tag 先，方便日后修改
+
+# day 8-9
+
+详细重新分析了 node 和 tree 的代码，以及理解透了，同时开始写 unit test,发现 del 函数有 bug，待解决
