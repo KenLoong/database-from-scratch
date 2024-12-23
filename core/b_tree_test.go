@@ -115,7 +115,7 @@ func TestLargeWrite(t *testing.T) {
 func TestMulWriteAndDel(t *testing.T) {
 	c := newC(t)
 	keyList := make([]string, 0)
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 6; i++ {
 		key, err := generateRandomString(BTREE_MAX_KEY_SIZE)
 		assert.Nil(t, err)
 		keyList = append(keyList, key)

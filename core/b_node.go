@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 )
 
 const (
@@ -174,7 +175,11 @@ func nodeAppendRange(
 	// KVs
 	begin := old.kvPos(srcOld)
 	end := old.kvPos(srcOld + n)
-	//todo:这里报错了
+	//todo:这里报错了,既然能超出边界，那说明在merge的时候可能创建了一个超大节点
+	fmt.Println("new.kvPos(dstNew):", new.kvPos(dstNew))
+	fmt.Println("begin:", begin, "end:", end)
+	fmt.Println("len(new.data):", len(new.data))
+	fmt.Println("len(old.data[begin:end]):", len(old.data[begin:end]))
 	copy(new.data[new.kvPos(dstNew):], old.data[begin:end])
 }
 
